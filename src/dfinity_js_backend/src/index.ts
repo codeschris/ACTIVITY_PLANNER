@@ -1,21 +1,15 @@
-import { act } from "@testing-library/react";
 import { query, update, text, Record, StableBTreeMap, Variant, Vec, None, Some, Ok, Err, ic, Principal, Opt, nat64, Duration, Result, bool, Canister } from "azle";
 import {
     Ledger, binaryAddressFromAddress, binaryAddressFromPrincipal, hexAddressFromPrincipal
 } from "azle/canisters/ledger";
-import { hashCode } from "hashcode";
 import { v4 as uuidv4 } from "uuid";
 
-/**
- * This type represents a product that can be listed on a marketplace.
- * It contains basic properties that are needed to define a product.
- */
 const Activity = Record({
     creator: Principal,
     id: text,
     title: text,
     description: text,
-    elapsed_time: text,
+    elapsed_time: nat64, // Changed from text to nat64
     tags: Vec(text),
     status: text,
     priority: text,
@@ -28,7 +22,6 @@ const ActivityPayload = Record({
     description: text,
 });
 
-
 const Message = Variant({
     NotFound: text,
     InvalidPayload: text,
@@ -36,10 +29,7 @@ const Message = Variant({
     PaymentCompleted: text
 });
 
-
 const activityStorage = StableBTreeMap(0, text, Activity);
-
-const firstLoad = 2;
 
 export default Canister({
     getActivities: query([], Vec(Activity), () => {
@@ -63,7 +53,7 @@ export default Canister({
             status: "pending",
             priority: "normal",
             tags:[], 
-            elapsed_time: "0",
+            elapsed_time: 0, // Changed from "0" to 0
             created_at: ic.time(), 
             updated_at: None,
             ...payload };
@@ -71,7 +61,6 @@ export default Canister({
         return Ok(activity);
     }),
 
-    // Add Tag to Activity
     addTag: update([text, text], Result(text, Message), (id, tag) => {
         const activityOpt = activityStorage.get(id);
         if ("None" in activityOpt) {
@@ -87,7 +76,6 @@ export default Canister({
         return Ok(tag);
     }),
 
-    // Remove Tag from Activity
     removeTag: update([text, text], Result(text, Message), (id, tag) => {
         const activityOpt = activityStorage.get(id);
         if ("None" in activityOpt) {
@@ -102,58 +90,50 @@ export default Canister({
         return Ok(tag);
     }),
 
-    // Get Activity by Tag 
     getActivitiesByTag: query([text], Vec(Activity), (tag) => {
         const activities = activityStorage.values();
-        return activities.filter(activity => activity.tags.includes(tag));
+        const filteredActivities = activities.filter(activity => activity.tags.includes(tag));
+        if (filteredActivities.length === 0) {
+            return Err({ NotFound: `No activities found with the tag: ${tag}` });
+        }
+        return Ok(filteredActivities);
     }),
 
-
-
-    // Make a Completion of Activity
     completeActivity: update([text], Result(text, Message), (id) => {
         const activityOpt = activityStorage.get(id);
         if ("None" in activityOpt) {
             return Err({ NotFound: `cannot complete the activity: activity with id=${id} not found` });
         }
-        const activity = activityOpt.Some;
-        activity.status = "completed";
+        const activity = { ...activityOpt.Some, status: "completed" };
         activityStorage.insert(activity.id, activity);
         return Ok(activity.id);
     }),
 
-    // Change the status of Activity
     changeStatus: update([text, text], Result(text, Message), (id, status) => {
         const activityOpt = activityStorage.get(id);
         if ("None" in activityOpt) {
             return Err({ NotFound: `cannot change the status of activity: activity with id=${id} not found` });
         }
-        const activity = activityOpt.Some;
-        activity.status = status;
+        const activity = { ...activityOpt.Some, status };
         activityStorage.insert(activity.id, activity);
         return Ok(activity.id);
     }),
 
-    // Get Activity by Status
     getActivitiesByStatus: query([text], Vec(Activity), (status) => {
         const activities = activityStorage.values();
         return activities.filter(activity => activity.status.toLowerCase() === status.toLowerCase());
     }),
 
-
-    // Set Priority of Activity
     setPriority: update([text, text], Result(text, Message), (id, priority) => {
         const activityOpt = activityStorage.get(id);
         if ("None" in activityOpt) {
             return Err({ NotFound: `cannot set priority of activity: activity with id=${id} not found` });
         }
-        const activity = activityOpt.Some;
-        activity.priority = priority;
+        const activity = { ...activityOpt.Some, priority };
         activityStorage.insert(activity.id, activity);
         return Ok(activity.id);
     }),
 
-    // Calculate Elapsed Time of Activity
     calculateElapsedTime: update([text], text, (id) => {
         const activityOpt = activityStorage.get(id);
         if ("None" in activityOpt) {
@@ -162,44 +142,30 @@ export default Canister({
         const activity = activityOpt.Some;
 
         const time = Math.floor((Number(ic.time()) - Number(activityOpt.Some.created_at)) / 60000000000);
-        // This can be upgraded to calculate even for hours for test purpose we use minutes
-        // console.log ((Number(ic.time()) - Number(activityOpt.Some.created_at)) / 60000000000);
-        activity.elapsed_time = time.toString();
+        activity.elapsed_time = time;
         activityStorage.insert(activity.id, activity);
-        return activity.elapsed_time;
-    } ),
-    
-   
-    // Arrange Activities by Created Date in Ascending Order
+        return activity.elapsed_time.toString();
+    }),
+
     getActivitiesByCreatedDate: query([], Vec(Activity), () => {
         const activities = activityStorage.values();
         return activities.sort((a, b) => Number(a.created_at) - Number(b.created_at));
     }),
 
-    // Count Activities in the Storage
     countActivities: query([], nat64, () => {
         return activityStorage.len();
     }),
 
-    
     updateActivity: update([text,ActivityPayload], Result(Activity, Message), (id,payload) => {
         const activityOpt = activityStorage.get(id);
         if ("None" in activityOpt) {
             return Err({ NotFound: `cannot update the activity: activity with id=${id} not found` });
         }
-        const activity = activityOpt.Some;
-        activity.creator = activity.creator;
-        activity.title = payload.title;
-        activity.description = payload.description;
-        activity.tags = activity.tags;
-        activity.status = activity.status;
-        activity.priority = activity.priority;
-        activity.elapsed_time = activity.elapsed_time;
-        activity.created_at = activity.created_at;
-        activity.updated_at = Some(ic.time());
+        const activity = { ...activityOpt.Some, ...payload, updated_at: Some(ic.time()) };
         activityStorage.insert(activity.id, activity);
         return Ok(activity);
     }),
+
     deleteActivity: update([text], Result(text, Message), (id) => {
         const deletedActivityOpt = activityStorage.remove(id);
         if ("None" in deletedActivityOpt) {
@@ -208,28 +174,8 @@ export default Canister({
         return Ok(deletedActivityOpt.Some.id);
     }),
 
-
     getAddressFromPrincipal: query([Principal], text, (principal) => {
         return hexAddressFromPrincipal(principal, 0);
     }),
 
 });
-
-
-
-
-// a workaround to make uuid package work with Azle
-globalThis.crypto = {
-    // @ts-ignore
-    getRandomValues: () => {
-        let array = new Uint8Array(32);
-
-        for (let i = 0; i < array.length; i++) {
-            array[i] = Math.floor(Math.random() * 256);
-        }
-
-        return array;
-    }
-};
-
-
