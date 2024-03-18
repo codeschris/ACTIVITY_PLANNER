@@ -28,6 +28,23 @@ const ActivityPayload = Record({
     description: text,
 });
 
+const ReserveStatus = Variant({
+    PaymentPending: text,
+    Completed: text
+});
+
+
+
+// Stay with implementing Payment for Reserving 
+const Premium = Record({
+    ActivityId: text,
+    price: nat64,
+    status: ReserveStatus,
+    reservor: Principal,
+    paid_at_block: Opt(nat64),
+    memo: nat64
+});
+
 
 const Message = Variant({
     NotFound: text,
@@ -36,8 +53,15 @@ const Message = Variant({
     PaymentCompleted: text
 });
 
+const TIMEOUT_PERIOD = 5600n; // reservation period in seconds
+
 
 const activityStorage = StableBTreeMap(0, text, Activity);
+const persistedPlan = StableBTreeMap(1, Principal, Premium);
+const pendingPlans = StableBTreeMap(2, nat64, Premium);
+
+
+const icpCanister = Ledger(Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai"));
 
 const firstLoad = 2;
 
@@ -208,14 +232,78 @@ export default Canister({
         return Ok(deletedActivityOpt.Some.id);
     }),
 
+    createPremiumPlan: update([text, nat64], Result(Premium, Message), (activityId, premiumPlanPrice) => {
+        const activityOpt = activityStorage.get(activityId);
+        if ("None" in activityOpt) {
+            return Err({ NotFound: `cannot reserve book: book with id=${activityId} not found` });
+        }
 
+        const activity = activityOpt.Some;
+        const plan = {
+            ActivityId: activity.id,
+            price: premiumPlanPrice,
+            status: { PaymentPending: "PAYMENT_PENDING" },
+            reservor: activity.creator,
+            paid_at_block: None,
+            memo: generateCorrelationId(activityId)
+        };
+        pendingPlans.insert(plan.memo, plan);
+        discardByTimeout(plan.memo, TIMEOUT_PERIOD);
+        return Ok(plan);
+    }
+    ),
+
+    completePremiumPlan: update([Principal,text,nat64, nat64, nat64], Result(Premium, Message), async (reservor,activityId,premiumPlanPrice, block, memo) => {
+        const paymentVerified = await verifyPaymentInternal(reservor,premiumPlanPrice, block, memo);
+        if (!paymentVerified) {
+            return Err({ NotFound: `cannot complete the reserve: cannot verify the payment, memo=${memo}` });
+        }
+        const pendingPlansOpt = pendingPlans.remove(memo);
+        if ("None" in pendingPlansOpt) {
+            return Err({ NotFound: `cannot complete the reserve: there is no pending reserve with id=${activityId}` });
+        }
+        const plans = pendingPlansOpt.Some;
+        const updatedPlan = { ...plans, status: { Completed: "COMPLETED" }, paid_at_block: Some(block) };
+        const activityOpt = activityStorage.get(activityId);
+        if ("None" in activityOpt) {
+            return Err({ NotFound: `cannot complete the reserve: activity with id=${activityId} not found` });
+        }
+        const activity = activityOpt.Some;
+        activity.status = "premium";
+        activityStorage.insert(activity.id, activity);
+        persistedPlan.insert(ic.caller(), updatedPlan);
+        return Ok(updatedPlan);
+    }
+    ),
+
+     /*
+        another example of a canister-to-canister communication
+        here we call the `query_blocks` function on the ledger canister
+        to get a single block with the given number `start`.
+        The `length` parameter is set to 1 to limit the return amount of blocks.
+        In this function we verify all the details about the transaction to make sure that we can mark the order as completed
+    */
+    verifyPayment: query([Principal, nat64, nat64, nat64], bool, async (receiver, amount, block, memo) => {
+        return await verifyPaymentInternal(receiver, amount, block, memo);
+    }),
+
+    /*
+        a helper function to get address from the principal
+        the address is later used in the transfer method
+    */
     getAddressFromPrincipal: query([Principal], text, (principal) => {
         return hexAddressFromPrincipal(principal, 0);
     }),
 
 });
 
-
+/*
+    a hash function that is used to generate correlation ids for orders.
+    also, we use that in the verifyPayment function where we check if the used has actually paid the order
+*/
+function hash(input: any): nat64 {
+    return BigInt(Math.abs(hashCode().value(input)));
+};
 
 
 // a workaround to make uuid package work with Azle
@@ -230,6 +318,40 @@ globalThis.crypto = {
 
         return array;
     }
+};
+
+// HELPER FUNCTIONS
+function generateCorrelationId(bookId: text): nat64 {
+    const correlationId = `${bookId}_${ic.caller().toText()}_${ic.time()}`;
+    return hash(correlationId);
+};
+
+/*
+    after the order is created, we give the `delay` amount of minutes to pay for the order.
+    if it's not paid during this timeframe, the order is automatically removed from the pending orders.
+*/
+function discardByTimeout(memo: nat64, delay: Duration) {
+    ic.setTimer(delay, () => {
+        const order = pendingPlans.remove(memo);
+        console.log(`Reserve discarded ${order}`);
+    });
+};
+
+async function verifyPaymentInternal(receiver: Principal, amount: nat64, block: nat64, memo: nat64): Promise<bool> {
+    const blockData = await ic.call(icpCanister.query_blocks, { args: [{ start: block, length: 1n }] });
+    const tx = blockData.blocks.find((block) => {
+        if ("None" in block.transaction.operation) {
+            return false;
+        }
+        const operation = block.transaction.operation.Some;
+        const senderAddress = binaryAddressFromPrincipal(ic.caller(), 0);
+        const receiverAddress = binaryAddressFromPrincipal(receiver, 0);
+        return block.transaction.memo === memo &&
+            hash(senderAddress) === hash(operation.Transfer?.from) &&
+            hash(receiverAddress) === hash(operation.Transfer?.to) &&
+            amount === operation.Transfer?.amount.e8s;
+    });
+    return tx ? true : false;
 };
 
 

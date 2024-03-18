@@ -82,6 +82,15 @@ export async function getNoOfActivities() {
   return window.canister.planner.countActivities();
 }
 
+export async function payPremiumPlan(activity, premiumPlanPrice) {
+  const plannerCanister = window.canister.planner;
+  const orderResponse = await plannerCanister.createPremiumPlan(activity.id, premiumPlanPrice);
+  const sellerPrincipal = Principal.from(orderResponse.Ok.reservor);
+  const sellerAddress = await plannerCanister.getAddressFromPrincipal(sellerPrincipal);
+  const block = await transferICP(sellerAddress, orderResponse.Ok.price, orderResponse.Ok.memo);
+  await plannerCanister.completePremiumPlan(sellerPrincipal, activity.id, orderResponse.Ok.price, block, orderResponse.Ok.memo);
+}
+
 
 
 

@@ -8,8 +8,9 @@ import DeleteActivity from "./DeleteActivity";
 import { addTag, completeActivity, removeTag, setPriority, updateStatus } from "../../utils/planner";
 import { toast } from "react-toastify";
 import { NotificationError, NotificationSuccess } from "../utils/Notifications";
+import PayPremium from "./PayPremium";
 
-const Activity = ({activity}) => {
+const Activity = ({activity, getActivities}) => {
     const {id, creator, title, description,elapsed_time, tags,status, priority} = activity;
 
     const [changedStatus, setChangedStatus] = useState("");
@@ -204,6 +205,7 @@ const Activity = ({activity}) => {
                     >
                         Calculate Elapsed Time
                     </Button>
+                    <PayPremium id={id}  getActivities={getActivities} />
 
                     <Row>
                         <Col className="d-flex justify-content-center">

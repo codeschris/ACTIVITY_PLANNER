@@ -108,6 +108,7 @@ const Home = () => {
                     activity={{
                         ..._activity,
                     }}
+                    getActivities={getActivities}
                 />
               ))}
             </Row>

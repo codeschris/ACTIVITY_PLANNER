@@ -4,7 +4,9 @@ service: () -> {
     calculateElapsedTime: (text) -> (text);
     changeStatus: (text, text) -> (variant {Ok:text; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
     completeActivity: (text) -> (variant {Ok:text; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
+    completePremiumPlan: (principal, text, nat64, nat64, nat64) -> (variant {Ok:record {status:variant {PaymentPending:text; Completed:text}; memo:nat64; reservor:principal; ActivityId:text; price:nat64; paid_at_block:opt nat64}; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
     countActivities: () -> (nat64) query;
+    createPremiumPlan: (text, nat64) -> (variant {Ok:record {status:variant {PaymentPending:text; Completed:text}; memo:nat64; reservor:principal; ActivityId:text; price:nat64; paid_at_block:opt nat64}; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
     deleteActivity: (text) -> (variant {Ok:text; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
     getActivities: () -> (vec record {id:text; status:text; title:text; updated_at:opt nat64; creator:principal; tags:vec text; description:text; created_at:nat64; elapsed_time:text; priority:text}) query;
     getActivitiesByCreatedDate: () -> (vec record {id:text; status:text; title:text; updated_at:opt nat64; creator:principal; tags:vec text; description:text; created_at:nat64; elapsed_time:text; priority:text}) query;
@@ -15,4 +17,5 @@ service: () -> {
     removeTag: (text, text) -> (variant {Ok:text; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
     setPriority: (text, text) -> (variant {Ok:text; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
     updateActivity: (text, record {title:text; description:text}) -> (variant {Ok:record {id:text; status:text; title:text; updated_at:opt nat64; creator:principal; tags:vec text; description:text; created_at:nat64; elapsed_time:text; priority:text}; Err:variant {PaymentFailed:text; InvalidPayload:text; NotFound:text; PaymentCompleted:text}});
+    verifyPayment: (principal, nat64, nat64, nat64) -> (bool) query;
 }
